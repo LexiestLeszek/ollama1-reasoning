@@ -8,7 +8,7 @@ def llm_call(messages, max_tokens, is_final_answer=False):
             response = ollama.chat(
                 model='llama3.1:8b-instruct-q5_K_M',
                 messages=messages,
-                options={"temperature":0.2, "max_length":max_tokens},
+                options={"temperature":0.4, "max_length":max_tokens},
                 format='json',
             )
             return json.loads(response['message']['content'])
@@ -42,13 +42,38 @@ def generate_response(prompt):
         
         messages.append({"role": "assistant", "content": json.dumps(step_data)})
         
-        if step_data['next_action'] == 'final_answer' or step_count > 25:  # Maximum of 25 steps to prevent infinite thinking time
+        if step_data['next_action'] == 'final_answer' or step_count > 25:
             break
         
         step_count += 1
 
+    # Self-reflection and correction
+    messages.append({"role": "user", "content": "Now, please review your reasoning steps and perform a self-reflection. Identify any potential errors or biases in your thinking. If you find any issues, correct them and explain the correction."})
+    
+    start_time = time.time()
+    reflection_data = llm_call(messages, 300)
+    end_time = time.time()
+    thinking_time = end_time - start_time
+    total_thinking_time += thinking_time
+    
+    steps.append(("Self-Reflection", reflection_data['content'], thinking_time))
+    messages.append({"role": "assistant", "content": json.dumps(reflection_data)})
+
+    # Potential correction
+    if "correction" in reflection_data['content'].lower():
+        messages.append({"role": "user", "content": "Please provide your corrected reasoning or answer based on the self-reflection."})
+        
+        start_time = time.time()
+        correction_data = llm_call(messages, 300)
+        end_time = time.time()
+        thinking_time = end_time - start_time
+        total_thinking_time += thinking_time
+        
+        steps.append(("Correction", correction_data['content'], thinking_time))
+        messages.append({"role": "assistant", "content": json.dumps(correction_data)})
+
     # Generate final answer
-    messages.append({"role": "user", "content": "Please provide the final answer based on your reasoning above."})
+    messages.append({"role": "user", "content": "Please provide the final answer based on your reasoning, self-reflection, and any corrections made."})
     
     start_time = time.time()
     final_data = llm_call(messages, 200, is_final_answer=True)
